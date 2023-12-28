@@ -8,10 +8,7 @@ import (
 	"regexp"
 	"strconv"
 	"strings"
-	"sync"
 )
-
-var mux = sync.RWMutex{}
 
 func main() {
 
@@ -33,7 +30,6 @@ func parseFile(s string) {
 	seedsStr := strings.Split(strings.ReplaceAll(row[0], "seeds: ", ""), ": ")[0]
 	seeds := strings.Split(seedsStr, " ")
 	regexMap := regexp.MustCompile(`([a-z\-]+) map:`)
-	regexNumber := regexp.MustCompile(`[0-9]+`)
 	soils := []string{}
 	fertilizers := []string{}
 	waters := []string{}
@@ -42,9 +38,10 @@ func parseFile(s string) {
 	locations := []string{}
 	humidities := []string{}
 	currentMapType := ""
-	sourceToDest := map[int]int{}
+	sourceFound := map[string]int{}
 	minLocation := math.MaxInt
 	for _, col := range row {
+		visited := 0
 		if col == "" {
 			continue
 		}
@@ -52,29 +49,55 @@ func parseFile(s string) {
 		if len(mapType) != 0 {
 			currentMapType = mapType[0]
 			currentMapType = strings.Split(mapType[0], " ")[0]
-			sourceToDest = map[int]int{}
+			sourceFound = map[string]int{}
+			visited = 0
 			continue
 		}
 
 		switch currentMapType {
 		case "seed-to-soil":
-			soils = moveSourceToDest(col, regexNumber, seeds, soils, sourceToDest)
+			populateSourceFound(visited, seeds, sourceFound)
+			soils = moveSourceToDest(col, seeds, soils, sourceFound)
+			log.Println("seeds", seeds, "soils", soils, "sourceFound", sourceFound)
 		case "soil-to-fertilizer":
-			fertilizers = moveSourceToDest(col, regexNumber, soils, fertilizers, sourceToDest)
+			populateSourceFound(visited, soils, sourceFound)
+			fertilizers = moveSourceToDest(col, soils, fertilizers, sourceFound)
 		case "fertilizer-to-water":
-			waters = moveSourceToDest(col, regexNumber, fertilizers, waters, sourceToDest)
+			populateSourceFound(visited, fertilizers, sourceFound)
+			waters = moveSourceToDest(col, fertilizers, waters, sourceFound)
 		case "water-to-light":
-			lights = moveSourceToDest(col, regexNumber, waters, lights, sourceToDest)
+			populateSourceFound(visited, waters, sourceFound)
+			lights = moveSourceToDest(col, waters, lights, sourceFound)
 		case "light-to-temperature":
-			temperatures = moveSourceToDest(col, regexNumber, lights, temperatures, sourceToDest)
+			populateSourceFound(visited, lights, sourceFound)
+			temperatures = moveSourceToDest(col, lights, temperatures, sourceFound)
 		case "temperature-to-humidity":
-			humidities = moveSourceToDest(col, regexNumber, temperatures, humidities, sourceToDest)
+			populateSourceFound(visited, temperatures, sourceFound)
+			humidities = moveSourceToDest(col, temperatures, humidities, sourceFound)
 		case "humidity-to-location":
-			locations = moveSourceToDest(col, regexNumber, humidities, locations, sourceToDest)
+			populateSourceFound(visited, humidities, sourceFound)
+			locations = moveSourceToDest(col, humidities, locations, sourceFound)
 		}
 	}
 
 	for i, _ := range seeds {
+		log.Println("seed",
+			seeds[i],
+			"soil",
+			soils[i],
+			"fertilizer",
+			fertilizers[i],
+			"water",
+			waters[i],
+			"light",
+			lights[i],
+			"temperature",
+			temperatures[i],
+			"humidity",
+			humidities[i],
+			"location",
+			locations[i],
+		)
 		location := strToInt(locations[i])
 		if minLocation > location {
 			minLocation = location
@@ -84,37 +107,37 @@ func parseFile(s string) {
 	log.Println(minLocation)
 }
 
-func moveSourceToDest(col string, regexNumber *regexp.Regexp, sources, destinations []string, sourceToDest map[int]int) []string {
-	splitCol := strings.Split(col, " ")
-	numbers := regexNumber.FindAllString(splitCol[0], -1)
-	if len(numbers) != 0 {
-		dest := strToInt(splitCol[0])
-		source := strToInt(splitCol[1])
-		length := strToInt(splitCol[2])
-		for i := 0; i < length; i++ {
-			sourceToDest[source+i] = dest + i
+func populateSourceFound(visited int, source []string, sourceFound map[string]int) {
+	if visited == 0 {
+		visited = 1
+		for i, sourcesSource := range source {
+			sourceFound[fmt.Sprintf("%v|%v", sourcesSource, i)] = strToInt(sourcesSource)
 		}
-		destinations = mapping(sources, sourceToDest)
 	}
+}
+
+func moveSourceToDest(col string, sources, destinations []string, sourceFound map[string]int) []string {
+	splitCol := strings.Split(col, " ")
+	dest := strToInt(splitCol[0])
+	source := strToInt(splitCol[1])
+	length := strToInt(splitCol[2])
+	for i := 0; i < length; i++ {
+		for j, sourcesSource := range sources {
+			sourceKey := fmt.Sprintf("%v|%v", sourcesSource, j)
+			if strToInt(sourcesSource) == source+i {
+				sourceFound[sourceKey] = dest + i
+			}
+		}
+	}
+	destinations = mapping(sourceFound, len(sources))
 	return destinations
 }
 
-func mapping(sources []string, sourceToDest map[int]int) []string {
-	destinations := []string{}
-	//destinations := make([]string, len(sources))
-	for _, source := range sources {
-		source := source
-		//go func() {
-		//	mux.Lock()
-		//	mux.RLock()
-		v, ok := sourceToDest[strToInt(source)]
-		if !ok {
-			v = strToInt(source)
-		}
-		destinations = append(destinations, fmt.Sprintf("%v", v))
-		//	defer mux.RUnlock()
-		//	defer mux.Unlock()
-		//}()
+func mapping(sourceFound map[string]int, sourceLen int) []string {
+	destinations := make([]string, sourceLen)
+	for k, dest := range sourceFound {
+		segmentK := strings.Split(k, "|")
+		destinations[strToInt(segmentK[1])] = fmt.Sprintf("%v", dest)
 	}
 	return destinations
 }
