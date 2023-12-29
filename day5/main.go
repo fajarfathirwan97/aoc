@@ -126,20 +126,26 @@ func moveSourceToDest(col string, sources, destinations []string, sourceFound, m
 	dest := strToInt(splitCol[0])
 	source := strToInt(splitCol[1])
 	length := strToInt(splitCol[2])
+	shift := dest - source
+	sourceMaxRange := source + length - 1
 	wg := &sync.WaitGroup{}
-	for i := 0; i < length; i++ {
-		t := length - i - 1
-		if i > t {
-			break
-		}
-		if t != i {
-			wg.Add(1)
-			go mappingSourceFound(sources, mappedSeed, source, i, sourceFound, dest, wg)
-		}
+	for i, sourcesSource := range sources {
+		sourcesSource := strToInt(sourcesSource)
 		wg.Add(1)
-		go mappingSourceFound(sources, mappedSeed, source, t, sourceFound, dest, wg)
+		i := i
+		go func() {
+			defer wg.Done()
+			sourceKey := fmt.Sprintf("%v|%v", sourcesSource, i)
+			isMapped, _ := mappedSeed.Load(sourceKey)
+			if sourcesSource >= source &&
+				sourcesSource <= sourceMaxRange && !isMapped.(bool) {
+				sourceFound.Store(sourceKey, sourcesSource+shift)
+				mappedSeed.Store(sourceKey, true)
+			}
+		}()
+		wg.Wait()
 	}
-	wg.Wait()
+
 	destinations = mapping(sourceFound, len(sources))
 	return destinations
 }
