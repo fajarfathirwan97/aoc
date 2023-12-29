@@ -1,7 +1,6 @@
 package main
 
 import (
-	"fmt"
 	"log"
 	"math"
 	"os"
@@ -11,13 +10,31 @@ import (
 	"sync"
 )
 
+type almanacMap struct {
+	min   int
+	max   int
+	shift int
+}
+
+type almanac struct {
+	seeds              []string
+	seedToSoil         []almanacMap
+	soilToFertilizer   []almanacMap
+	fertilizerToWater  []almanacMap
+	waterToLight       []almanacMap
+	lightToTemp        []almanacMap
+	tempToHumidity     []almanacMap
+	humidityToLocation []almanacMap
+	minLocation        int
+}
+
 func main() {
 
 	getwd, err := os.Getwd()
 	if err != nil {
 		return
 	}
-	q, err := os.ReadFile(getwd + "/day5/question")
+	q, err := os.ReadFile(getwd + "/day5/example")
 	if err != nil {
 		log.Println(err)
 		return
@@ -30,154 +47,115 @@ func parseFile(s string) {
 	row := strings.Split(s, "\n")
 	seedsStr := strings.Split(strings.ReplaceAll(row[0], "seeds: ", ""), ": ")[0]
 	seeds := strings.Split(seedsStr, " ")
-	regexMap := regexp.MustCompile(`([a-z\-]+) map:`)
-	soils := []string{}
-	fertilizers := []string{}
-	waters := []string{}
-	lights := []string{}
-	temperatures := []string{}
-	locations := []string{}
-	humidities := []string{}
+	alm := almanac{}
+	alm.seeds = seeds
+	alm.minLocation = math.MaxInt
+	regexMap := regexp.MustCompile(`(\w+-to-\w+)`)
 	currentMapType := ""
-	sourceFound := &sync.Map{}
-	mappedSeed := &sync.Map{}
-	minLocation := math.MaxInt
-	visited := 0
 	for _, col := range row {
+		mapType := regexMap.FindAllString(col, -1)
 		if col == "" {
 			continue
 		}
-		mapType := regexMap.FindAllString(col, -1)
-		if len(mapType) != 0 {
+		if len(mapType) > 0 {
 			currentMapType = mapType[0]
-			currentMapType = strings.Split(mapType[0], " ")[0]
-			log.Println("processing: ", currentMapType)
-			sourceFound = &sync.Map{}
-			mappedSeed = &sync.Map{}
-			visited = 0
 			continue
 		}
 
+		splitCol := strings.Split(col, " ")
+		dest := strToInt(splitCol[0])
+		source := strToInt(splitCol[1])
+		length := strToInt(splitCol[2])
 		switch currentMapType {
 		case "seed-to-soil":
-			visited = populateSourceFound(visited, seeds, sourceFound, mappedSeed)
-			soils = moveSourceToDest(col, seeds, soils, sourceFound, mappedSeed)
+			alm.seedToSoil = append(alm.seedToSoil, almanacMap{
+				min:   source,
+				max:   source + length - 1,
+				shift: dest - source,
+			})
 		case "soil-to-fertilizer":
-			visited = populateSourceFound(visited, soils, sourceFound, mappedSeed)
-			fertilizers = moveSourceToDest(col, soils, fertilizers, sourceFound, mappedSeed)
+			alm.soilToFertilizer = append(alm.soilToFertilizer, almanacMap{
+				min:   source,
+				max:   source + length - 1,
+				shift: dest - source,
+			})
 		case "fertilizer-to-water":
-			visited = populateSourceFound(visited, fertilizers, sourceFound, mappedSeed)
-			waters = moveSourceToDest(col, fertilizers, waters, sourceFound, mappedSeed)
+			alm.fertilizerToWater = append(alm.fertilizerToWater, almanacMap{
+				min:   source,
+				max:   source + length - 1,
+				shift: dest - source,
+			})
 		case "water-to-light":
-			visited = populateSourceFound(visited, waters, sourceFound, mappedSeed)
-			lights = moveSourceToDest(col, waters, lights, sourceFound, mappedSeed)
+			alm.waterToLight = append(alm.waterToLight, almanacMap{
+				min:   source,
+				max:   source + length - 1,
+				shift: dest - source,
+			})
 		case "light-to-temperature":
-			visited = populateSourceFound(visited, lights, sourceFound, mappedSeed)
-			temperatures = moveSourceToDest(col, lights, temperatures, sourceFound, mappedSeed)
+			alm.lightToTemp = append(alm.lightToTemp, almanacMap{
+				min:   source,
+				max:   source + length - 1,
+				shift: dest - source,
+			})
 		case "temperature-to-humidity":
-			visited = populateSourceFound(visited, temperatures, sourceFound, mappedSeed)
-			humidities = moveSourceToDest(col, temperatures, humidities, sourceFound, mappedSeed)
+			alm.tempToHumidity = append(alm.tempToHumidity, almanacMap{
+				min:   source,
+				max:   source + length - 1,
+				shift: dest - source,
+			})
 		case "humidity-to-location":
-			visited = populateSourceFound(visited, humidities, sourceFound, mappedSeed)
-			locations = moveSourceToDest(col, humidities, locations, sourceFound, mappedSeed)
+			alm.humidityToLocation = append(alm.humidityToLocation, almanacMap{
+				min:   source,
+				max:   source + length - 1,
+				shift: dest - source,
+			})
 		}
+
 	}
 
-	for i, _ := range seeds {
-		log.Println("seed",
-			seeds[i],
-			"soil",
-			soils[i],
-			"fertilizer",
-			fertilizers[i],
-			"water",
-			waters[i],
-			"light",
-			lights[i],
-			"temperature",
-			temperatures[i],
-			"humidity",
-			humidities[i],
-			"location",
-			locations[i],
-		)
-		location := strToInt(locations[i])
-		if minLocation > location {
-			minLocation = location
-		}
-	}
-
-	log.Println(minLocation)
+	P2(alm)
 }
-
-func populateSourceFound(visited int, source []string, sourceFound, mappedSeed *sync.Map) int {
-	if visited == 0 {
-		for i, sourcesSource := range source {
-			sourceFound.Store(fmt.Sprintf("%v|%v", sourcesSource, i), strToInt(sourcesSource))
-			mappedSeed.Store(fmt.Sprintf("%v|%v", sourcesSource, i), false)
-		}
-		return 1
-	}
-	return visited
-}
-
-func moveSourceToDest(col string, sources, destinations []string, sourceFound, mappedSeed *sync.Map) []string {
-	splitCol := strings.Split(col, " ")
-	dest := strToInt(splitCol[0])
-	source := strToInt(splitCol[1])
-	length := strToInt(splitCol[2])
-	shift := dest - source
-	sourceMaxRange := source + length - 1
-	wg := &sync.WaitGroup{}
-	for i, sourcesSource := range sources {
-		sourcesSource := strToInt(sourcesSource)
-		wg.Add(1)
-		i := i
-		go func() {
-			defer wg.Done()
-			sourceKey := fmt.Sprintf("%v|%v", sourcesSource, i)
-			isMapped, _ := mappedSeed.Load(sourceKey)
-			if sourcesSource >= source &&
-				sourcesSource <= sourceMaxRange && !isMapped.(bool) {
-				sourceFound.Store(sourceKey, sourcesSource+shift)
-				mappedSeed.Store(sourceKey, true)
+func P2(alm almanac) int {
+	for i, seed := range alm.seeds {
+		seed := strToInt(seed)
+		if i%2 == 0 {
+			wg := &sync.WaitGroup{}
+			loop := strToInt(alm.seeds[i+1])
+			for j := 0; j < loop; j++ {
+				wg.Add(1)
+				j := j
+				go func() {
+					defer wg.Done()
+					newSeed := seed + j
+					soil := populateSourceToDest(newSeed, alm.seedToSoil)
+					fertilizers := populateSourceToDest(soil, alm.soilToFertilizer)
+					water := populateSourceToDest(fertilizers, alm.fertilizerToWater)
+					light := populateSourceToDest(water, alm.waterToLight)
+					temp := populateSourceToDest(light, alm.lightToTemp)
+					humidty := populateSourceToDest(temp, alm.tempToHumidity)
+					location := populateSourceToDest(humidty, alm.humidityToLocation)
+					if location < alm.minLocation {
+						alm.minLocation = location
+					}
+				}()
 			}
-		}()
-		wg.Wait()
+			wg.Wait()
+		}
 	}
-
-	destinations = mapping(sourceFound, len(sources))
-	return destinations
+	log.Println(alm.minLocation)
+	return alm.minLocation
 }
 
-func mappingSourceFound(sources []string, mappedSeed *sync.Map, source int, i int, sourceFound *sync.Map, dest int, wg *sync.WaitGroup) {
-	defer wg.Done()
-	wg2 := &sync.WaitGroup{}
-	for j, sourcesSource := range sources {
-		wg2.Add(1)
-		sourcesSource := sourcesSource
-		j := j
-		go func() {
-			sourceKey := fmt.Sprintf("%v|%v", sourcesSource, j)
-			isMapped, _ := mappedSeed.Load(sourceKey)
-			if strToInt(sourcesSource) == source+i && !isMapped.(bool) {
-				sourceFound.Store(sourceKey, dest+i)
-				mappedSeed.Store(sourceKey, true)
-			}
-			defer wg2.Done()
-		}()
+func populateSourceToDest(source int, sourceToDest []almanacMap) int {
+	for _, almMap := range sourceToDest {
+		if source < almMap.min && source > almMap.max {
+			return source
+		}
+		if source >= almMap.min && source <= almMap.max {
+			return source + almMap.shift
+		}
 	}
-	wg2.Wait()
-}
-
-func mapping(sourceFound *sync.Map, sourceLen int) []string {
-	destinations := make([]string, sourceLen)
-	sourceFound.Range(func(k, v interface{}) bool {
-		segmentK := strings.Split(k.(string), "|")
-		destinations[strToInt(segmentK[1])] = fmt.Sprintf("%v", v)
-		return true
-	})
-	return destinations
+	return source
 }
 
 func strToInt(s string) int {
